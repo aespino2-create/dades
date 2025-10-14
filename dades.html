@@ -1,183 +1,138 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lectures Tarragona en temps real</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: #e6eef8;
+  margin: 0;
+  padding: 0;
+}
+.container {
+  max-width: 800px;
+  margin: 30px auto;
+  padding: 20px;
+  background: rgba(11, 18, 32, 0.85);
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+h1 {
+  text-align: center;
+}
+button {
+  padding: 10px 14px;
+  margin: 6px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+  background-color: #60a5fa;
+  color: #04233a;
+}
+.section {
+  margin-top: 20px;
+  padding: 10px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+}
+.result {
+  margin-top: 10px;
+  font-size: 1.1em;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Lectures Tarragona (Temps Real)</h1>
+  
+  <div class="section" id="temperature-section">
+    <h2>Temperatura</h2>
+    <button id="temp-latest">Última dada</button>
+    <button id="temp-avg">Mitjana (últimes 24 lectures)</button>
+    <div class="result" id="temp-result"></div>
+  </div>
+
+  <div class="section" id="humidity-section">
+    <h2>Humitat</h2>
+    <button id="hum-latest">Última dada</button>
+    <button id="hum-avg">Mitjana (últimes 24 lectures)</button>
+    <div class="result" id="hum-result"></div>
+  </div>
+</div>
+
+<!-- Carreguem l'API Google Visualization -->
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 <script>
-  // ====== Inicialització UI ======
-  const splash = document.getElementById('splash');
-  const app = document.querySelector('.app');
-  const status = document.getElementById('status');
-  const columnsEl = document.getElementById('columns');
+const SHEET_ID = '1X_GeZFRmwagSzfbJB-1AhrUsbE2n0S04KNzQ48OePoc';
+const SHEET_GID = '1632189632'; // ID de la pestanya concreta
 
-  // Assegura que els elements existeixen
-  if(!splash || !app){
-    console.error('No s\'han trobat #splash o .app al DOM. Revisa l\'HTML.');
-  } else {
-    // Mostra portada 5s i després amaga-la
-    setTimeout(() => {
-      try {
-        splash.style.transition = 'opacity 400ms ease';
-        splash.style.opacity = 0;
-        setTimeout(() => {
-          splash.style.display = 'none';
-          app.style.display = 'block';
-        }, 450);
-      } catch (e) {
-        console.error('Error al manipular la portada:', e);
-      }
-    }, 5000);
-  }
+let dataRows = [];
 
-  // ====== Utilitats ======
-  function parseCSV(text){
-    const rows = [];
-    let cur = '';
-    let row = [];
-    let inQuotes = false;
-    for(let i=0;i<text.length;i++){
-      const ch = text[i];
-      if(ch === '"'){
-        if(inQuotes && text[i+1] === '"'){ cur += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if((ch === '\n' || ch === '\r') && !inQuotes){
-        if(ch === '\r' && text[i+1] === '\n'){ /* windows new line handled later */ }
-        row.push(cur); cur = '';
-        rows.push(row); row = [];
-      } else if(ch === ',' && !inQuotes){
-        row.push(cur); cur = '';
-      } else {
-        cur += ch;
-      }
+function fetchData() {
+  const queryString = encodeURIComponent('SELECT *');
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tq=${queryString}`;
+  
+  const query = new google.visualization.Query(url);
+  query.send(response => {
+    if (response.isError()) {
+      console.error('Error carregant dades:', response.getMessage());
+      return;
     }
-    if(cur !== '' || row.length > 0){ row.push(cur); rows.push(row); }
-    if(rows.length && rows[rows.length-1].length===1 && rows[rows.length-1][0]==='') rows.pop();
-    return rows;
-  }
-
-  function toNumber(v){
-    if(v==null) return NaN;
-    const cleaned = String(v).replace(/[^0-9+\-.,eE]/g,'').replace(',','.');
-    return Number(cleaned);
-  }
-
-  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  // ====== Carrega i processa CSV ======
-  async function loadFromUrl(url){
-    if(!url){ status.textContent = 'Introdueix una URL.'; return; }
-    status.textContent = 'Preparant carregament...';
-    console.log('Intentant carregar:', url);
-
-    try {
-      const csvUrl = convertToGoogleCsv(url);
-      status.textContent = 'Sol·licitant dades...';
-      console.log('URL convertida a CSV:', csvUrl);
-
-      const res = await fetch(csvUrl);
-      if(!res.ok) {
-        // Registram més informació
-        const msg = `No s'ha pogut descarregar (estat ${res.status}). Comprova que el full és públic i que la URL és correcta.`;
-        console.error(msg, res);
-        throw new Error(msg);
+    const dataTable = response.getDataTable();
+    dataRows = [];
+    for(let i=0; i<dataTable.getNumberOfRows(); i++){
+      const row = [];
+      for(let j=0; j<dataTable.getNumberOfColumns(); j++){
+        row.push(dataTable.getValue(i,j));
       }
-
-      // Pots rebre errors CORS: captura i mostra missatge clar
-      const text = await res.text();
-      console.log('CSV rebut (primeres 200 car.):', text.slice(0,200));
-      processCsvText(text);
-    } catch (err) {
-      console.error('Error en loadFromUrl:', err);
-      if(err.name === 'TypeError' && err.message.includes('Failed to fetch')){
-        status.textContent = "Error de xarxa o CORS: el navegador no ha pogut fer la petició. Comprova que l'URL és HTTPS i que el Google Sheet és públic.";
-      } else {
-        status.textContent = 'Error: ' + (err.message || String(err));
-      }
+      dataRows.push(row);
     }
-  }
-
-  function convertToGoogleCsv(url){
-    try {
-      const u = new URL(url);
-      if(u.hostname.includes('docs.google.com')){
-        const parts = u.pathname.split('/');
-        const idx = parts.indexOf('d');
-        if(idx !== -1 && parts.length > idx+1){
-          const id = parts[idx+1];
-          // Exporta full 1 (per a fulls amb diverses pestanyes es pot afegir &gid=XXX)
-          return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`;
-        }
-      }
-      return url;
-    } catch(e){
-      console.warn('URL no valida, retornant com a està:', url);
-      return url;
-    }
-  }
-
-  function processCsvText(text){
-    try {
-      const rows = parseCSV(text);
-      if(rows.length < 2){
-        status.textContent = 'CSV sense dades suficients.';
-        console.warn('CSV parsing result:', rows);
-        return;
-      }
-      const headers = rows[0].map(h => (h||'').trim() || 'Col');
-      const dataRows = rows.slice(1).filter(r => r.some(c => c !== ''));
-      status.textContent = `Carregades ${dataRows.length} files. Generant interfície...`;
-      renderColumns(headers, dataRows);
-    } catch(e){
-      console.error('Error processant CSV:', e);
-      status.textContent = 'Error en processar CSV: ' + e.message;
-    }
-  }
-
-  function renderColumns(headers, dataRows){
-    columnsEl.innerHTML = '';
-    for(let c = 1; c < headers.length; c++){
-      const colName = headers[c] || (`Col ${c+1}`);
-      const values = dataRows.map(r => r[c]);
-      const det = document.createElement('details');
-      const sum = document.createElement('summary');
-      sum.textContent = colName;
-      det.appendChild(sum);
-
-      const info = document.createElement('div');
-      info.className = 'info';
-
-      if(values.length === 0){
-        info.innerHTML = '<div>No hi ha dades per a aquesta columna.</div>';
-      } else {
-        const lastRaw = values[values.length - 1];
-        const lastNum = toNumber(lastRaw);
-        let lastDisplay = lastRaw;
-        if(!Number.isNaN(lastNum)) lastDisplay = lastNum;
-
-        const last4 = [];
-        for(let i = values.length - 1; i >= 0 && last4.length < 4; i--){
-          const n = toNumber(values[i]); if(!Number.isNaN(n)) last4.push(n);
-        }
-        const avg = last4.length > 0 ? (last4.reduce((a,b)=>a+b,0)/last4.length) : NaN;
-
-        info.innerHTML = `<div>Últim registre recollit: <strong>${escapeHtml(String(lastDisplay))}</strong></div>` +
-                         `<div>Mitjana (últims ${last4.length}): <strong>${Number.isNaN(avg)?'—':avg.toFixed(2)}</strong></div>`;
-      }
-
-      det.appendChild(info);
-      columnsEl.appendChild(det);
-    }
-  }
-
-  // ====== Events UI ======
-  document.getElementById('loadBtn').addEventListener('click', () => {
-    const url = document.getElementById('sheetUrl').value.trim();
-    loadFromUrl(url);
   });
+}
 
-  document.getElementById('sampleBtn').addEventListener('click', () => {
-    status.textContent = 'Dades de prova deshabilitades segons la teva preferència.';
-  });
+// Inicialitza Google Charts API
+google.charts.load('current', {'packages':['corechart']});
+google.charts.setOnLoadCallback(() => {
+  fetchData();
+  // Refresca dades cada minut
+  setInterval(fetchData, 60000);
+});
 
-  // Permet obrir/ tancar details amb click (UX)
-  columnsEl.addEventListener('click', (e) => {
-    const el = e.target.closest('details');
-    if(el) el.open = !el.open;
-  });
+// Funcions utilitat
+function getLastValue(colIndex) {
+  if(dataRows.length===0) return 'No hi ha dades';
+  return dataRows[dataRows.length-1][colIndex];
+}
 
+function getAverageLastN(colIndex, N) {
+  if(dataRows.length===0) return 'No hi ha dades';
+  const vals = [];
+  for(let i=dataRows.length-1; i>=0 && vals.length<N; i--){
+    const v = parseFloat(dataRows[i][colIndex]);
+    if(!isNaN(v)) vals.push(v);
+  }
+  if(vals.length===0) return 'No hi ha dades';
+  const sum = vals.reduce((a,b)=>a+b,0);
+  return (sum/vals.length).toFixed(2);
+}
+
+// Event listeners
+document.getElementById('temp-latest').addEventListener('click', ()=>{
+  document.getElementById('temp-result').textContent = getLastValue(1);
+});
+document.getElementById('temp-avg').addEventListener('click', ()=>{
+  document.getElementById('temp-result').textContent = getAverageLastN(1,24);
+});
+document.getElementById('hum-latest').addEventListener('click', ()=>{
+  document.getElementById('hum-result').textContent = getLastValue(2);
+});
+document.getElementById('hum-avg').addEventListener('click', ()=>{
+  document.getElementById('hum-result').textContent = getAverageLastN(2,24);
+});
 </script>
+</body>
+</html>
