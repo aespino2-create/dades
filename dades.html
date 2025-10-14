@@ -126,7 +126,7 @@
         const csvUrl = convertToGoogleCsv(url);
         status.textContent = 'Sol·licitant dades...';
         const res = await fetch(csvUrl);
-        if(!res.ok) throw new Error('No s'ha pogut descarregar (comprova permís públic).');
+        if(!res.ok) throw new Error("No s'ha pogut descarregar (comprova permís públic).");
         const text = await res.text();
         processCsvText(text);
       }catch(err){ status.textContent = 'Error: '+err.message; }
